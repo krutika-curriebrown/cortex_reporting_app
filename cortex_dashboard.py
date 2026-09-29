@@ -186,19 +186,18 @@ countdown_count = int((published_e["YM"].str.startswith("2026")).sum())
 # ---------------------------------------------------------------------------
 
 def _base_layout(fig, height=340, legend=True):
-    # A horizontal legend and a chart title both want the same strip of
-    # space at the top of the figure - with a title added afterward (see
-    # call sites), give that combo extra top margin and push the legend
-    # higher so the two don't render on top of each other.
+    # Charts with a legend get their title as a Streamlit heading above the
+    # chart instead of Plotly's own title (see call sites) - the two don't
+    # share space reliably, so keeping them as separate elements avoids any
+    # overlap outright rather than tuning coordinates to avoid it.
     fig.update_layout(
         height=height,
-        margin=dict(l=10, r=10, t=70 if legend else 30, b=10),
+        margin=dict(l=10, r=10, t=40 if legend else 30, b=10),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family="Lato, sans-serif", color=INK, size=13),
         showlegend=legend,
-        legend=dict(orientation="h", yanchor="bottom", y=1.2, x=0),
-        title=dict(y=0.98, yanchor="top"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
         hoverlabel=dict(font_size=13, font_family="Lato, sans-serif"),
     )
     fig.update_xaxes(showgrid=False, zeroline=False)
@@ -440,7 +439,7 @@ elif page == "ytd":
                         textposition="top center",
                         hovertemplate="%{x}: <b>%{y}</b> published<extra></extra>")
         _base_layout(fig, height=380)
-        fig.update_layout(title=dict(text="Monthly flow: shared vs published", font_size=15, x=0))
+        st.markdown("##### Monthly flow: shared vs published")
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
     with c2:
@@ -476,7 +475,8 @@ elif page == "pipeline":
         fig.add_bar(y=piv.index, x=piv[stage], name=stage, orientation="h", marker_color=shade,
                     hovertemplate="%{y} - " + stage + ": <b>%{x}</b><extra></extra>")
     _base_layout(fig, height=640)
-    fig.update_layout(barmode="stack", title=dict(text="Current backlog by sector and stage", font_size=15, x=0))
+    fig.update_layout(barmode="stack")
+    st.markdown("##### Current backlog by sector and stage")
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 # ===========================================================================
@@ -499,22 +499,43 @@ elif page == "geo":
     gp["MAP_COUNTRY"] = gp["COUNTRY"].map(to_map_country)
     by_country = gp[gp["MAP_COUNTRY"].notna()].groupby("MAP_COUNTRY").size().rename("N").reset_index()
 
-    gc1, gc2 = st.columns([3, 2])
+    k = st.columns(3)
+    k[0].metric("Countries covered", by_country["MAP_COUNTRY"].nunique())
+    if not by_country.empty:
+        top_row = by_country.sort_values("N", ascending=False).iloc[0]
+        k[1].metric("Top country", top_row["MAP_COUNTRY"], f"{int(top_row['N']):,} projects")
+    else:
+        k[1].metric("Top country", "—")
+    k[2].metric("Regions represented", gp["REGION"].nunique())
+
+    st.markdown("---")
+    st.markdown("##### World coverage")
+    fig = px.choropleth(
+        by_country, locations="MAP_COUNTRY", locationmode="country names", color="N",
+        color_continuous_scale=[[0, PURPLE_PALE], [1, PLUM]],
+        hover_name="MAP_COUNTRY",
+    )
+    fig.update_geos(
+        showframe=False, showcoastlines=True, coastlinecolor="#c9bdd6",
+        showcountries=True, countrycolor="#d4cdd9",
+        showland=True, landcolor="#f2eef6", showocean=True, oceancolor=CREAM,
+        projection_type="natural earth", bgcolor="rgba(0,0,0,0)",
+    )
+    fig.update_layout(title=dict(text=""))
+    _base_layout(fig, height=560, legend=False)
+    fig.update_layout(coloraxis_colorbar=dict(title="Projects"), margin=dict(l=0, r=0, t=10, b=0))
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+    st.markdown("---")
+    gc1, gc2 = st.columns(2)
     with gc1:
-        fig = px.choropleth(
-            by_country, locations="MAP_COUNTRY", locationmode="country names", color="N",
-            color_continuous_scale=[[0, PURPLE_PALE], [1, PLUM]],
-            hover_name="MAP_COUNTRY",
-        )
-        fig.update_geos(showframe=False, showcoastlines=False, projection_type="natural earth",
-                        bgcolor="rgba(0,0,0,0)", landcolor="#e8e2ee")
-        _base_layout(fig, height=420, legend=False)
-        fig.update_layout(coloraxis_colorbar=dict(title="Projects"))
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        top_countries = by_country.sort_values("N", ascending=False).head(12)
+        st.plotly_chart(ranked_bar(top_countries, "MAP_COUNTRY", "N", "Top countries", height=440),
+                        use_container_width=True, config={"displayModeBar": False})
     with gc2:
         rd = gp.groupby("REGION").size().rename("N").reset_index()
         rd["R"] = rd["REGION"].str.title()
-        st.plotly_chart(ranked_bar(rd, "R", "N", "By region", height=420),
+        st.plotly_chart(ranked_bar(rd, "R", "N", "By region", height=440),
                         use_container_width=True, config={"displayModeBar": False})
 
 # ===========================================================================
@@ -538,7 +559,8 @@ elif page == "sector":
     fig.add_bar(y=d["S"], x=d["In pipeline"], name="Still in pipeline", orientation="h", marker_color="#c0aad0",
                 hovertemplate="%{y}: <b>%{x}</b> still in pipeline<extra></extra>")
     _base_layout(fig, height=420)
-    fig.update_layout(barmode="stack", title=dict(text="Projects per sector — in Cortex vs still working", font_size=15, x=0))
+    fig.update_layout(barmode="stack")
+    st.markdown("##### Projects per sector — in Cortex vs still working")
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
     top = sd.sort_values("N", ascending=False)
