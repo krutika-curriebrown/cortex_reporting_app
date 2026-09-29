@@ -1,0 +1,6 @@
+# Real Databricks credentials - a deployment target supplies these via
+# its own environment/config, never the repo.
+.env
+
+__pycache__/
+*.pyc
