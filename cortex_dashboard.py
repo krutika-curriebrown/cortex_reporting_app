@@ -186,14 +186,19 @@ countdown_count = int((published_e["YM"].str.startswith("2026")).sum())
 # ---------------------------------------------------------------------------
 
 def _base_layout(fig, height=340, legend=True):
+    # A horizontal legend and a chart title both want the same strip of
+    # space at the top of the figure - with a title added afterward (see
+    # call sites), give that combo extra top margin and push the legend
+    # higher so the two don't render on top of each other.
     fig.update_layout(
         height=height,
-        margin=dict(l=10, r=10, t=30, b=10),
+        margin=dict(l=10, r=10, t=70 if legend else 30, b=10),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family="Lato, sans-serif", color=INK, size=13),
         showlegend=legend,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.2, x=0),
+        title=dict(y=0.98, yanchor="top"),
         hoverlabel=dict(font_size=13, font_family="Lato, sans-serif"),
     )
     fig.update_xaxes(showgrid=False, zeroline=False)
@@ -235,7 +240,7 @@ def region_bar(counts, title, height=320):
     return fig
 
 
-def goal_gauge(height=220):
+def goal_gauge(height=250):
     fig = go.Figure(go.Indicator(
         mode="gauge+number", value=countdown_count,
         number={"font": {"color": PLUM, "family": "Merriweather"}},
@@ -246,7 +251,7 @@ def goal_gauge(height=220):
             "threshold": {"line": {"color": "#b8862c", "width": 4}, "thickness": 0.85, "value": QUOTA_GOAL},
         },
     ))
-    fig.update_layout(height=height, margin=dict(l=20, r=20, t=10, b=10), paper_bgcolor="rgba(0,0,0,0)")
+    fig.update_layout(height=height, margin=dict(l=20, r=20, t=50, b=10), paper_bgcolor="rgba(0,0,0,0)")
     return fig
 
 
@@ -262,7 +267,6 @@ NAV_PAGES = [
     ("geo", "🌍", "Geography"),
     ("sector", "🏗️", "By Sector"),
     ("sustainability", "🌱", "Sustainability"),
-    ("how", "❓", "How It Works"),
 ]
 PAGE_TITLE = {key: label for key, _, label in NAV_PAGES}
 
@@ -366,6 +370,7 @@ elif page == "monthly":
     published_this_month = int((published_e["YM"] == sel_month).sum())
     new_this_month = int((new_proj_e["YM"] == sel_month).sum())
 
+    st.markdown('<p class="cb-eyebrow">Overview</p>', unsafe_allow_html=True)
     mc = st.columns(3)
     mc[0].metric("New projects shared", new_this_month)
     mc[1].metric("Published to Cortex", published_this_month)
@@ -375,6 +380,8 @@ elif page == "monthly":
     m_new = new_proj_e[new_proj_e["YM"] == sel_month].copy()
     m_pub = published_e[published_e["YM"] == sel_month].copy()
 
+    st.markdown("---")
+    st.markdown("#### New projects shared this month")
     c1, c2 = st.columns(2)
     with c1:
         if m_new.empty:
@@ -391,6 +398,7 @@ elif page == "monthly":
             st.plotly_chart(region_bar(m_new.groupby("REGION").size(), "New projects shared this month, by region"),
                             use_container_width=True, config={"displayModeBar": False})
 
+    st.markdown("---")
     st.markdown("#### Published to Cortex this month")
     if m_pub.empty:
         st.caption("Nothing reached Cortex this month.")
@@ -404,12 +412,6 @@ elif page == "monthly":
         with pd2:
             st.plotly_chart(region_bar(m_pub.groupby("REGION").size(), "Published this month, by region", height=320),
                             use_container_width=True, config={"displayModeBar": False})
-
-    with st.expander("New projects this month — sector × region detail"):
-        if not m_new.empty:
-            m_new["S"] = m_new["SECTOR"].map(sector_short)
-            piv = pd.crosstab(m_new["S"], m_new["REGION"].str.title(), margins=True, margins_name="Total")
-            st.dataframe(piv, use_container_width=True)
 
 # ===========================================================================
 # YTD TRENDS
@@ -473,35 +475,9 @@ elif page == "pipeline":
     for stage, shade in zip(order_stages, shades):
         fig.add_bar(y=piv.index, x=piv[stage], name=stage, orientation="h", marker_color=shade,
                     hovertemplate="%{y} - " + stage + ": <b>%{x}</b><extra></extra>")
-    _base_layout(fig, height=420)
+    _base_layout(fig, height=640)
     fig.update_layout(barmode="stack", title=dict(text="Current backlog by sector and stage", font_size=15, x=0))
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-
-    st.markdown("#### Conversion through the pipeline (all main projects, all time)")
-    ever_reached = {}
-    for stage in MAIN_STAGES:
-        idx = MAIN_STAGES.index(stage)
-        cnt = int(mp["CURRENT_STAGE"].map(lambda s: MAIN_STAGES.index(s) >= idx if s in MAIN_STAGES else False).sum())
-        ever_reached[MAIN_STAGE_SHORT[stage]] = cnt
-    conv = pd.DataFrame({"Stage": list(ever_reached), "Reached": list(ever_reached.values())})
-    selected_reached = ever_reached[MAIN_STAGE_SHORT["PROJECT SELECTED"]]
-    conv["% of selected"] = (100 * conv["Reached"] / max(selected_reached, 1)).round(1)
-    cc1, cc2 = st.columns([2, 1])
-    with cc1:
-        fig = go.Figure(go.Funnel(
-            y=conv["Stage"], x=conv["Reached"], textinfo="value+percent initial",
-            marker=dict(color=shades),
-            hovertemplate="%{y}: <b>%{x}</b><extra></extra>",
-        ))
-        _base_layout(fig, height=320, legend=False)
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-    with cc2:
-        st.dataframe(conv, hide_index=True, use_container_width=True)
-
-    with st.expander("Sector × stage — full grid"):
-        st.dataframe(pd.crosstab(mp["S"], mp["StageShort"], margins=True, margins_name="Total")
-                     .reindex(columns=order_stages + ["Total"], fill_value=0),
-                     use_container_width=True)
 
 # ===========================================================================
 # GEOGRAPHY
@@ -541,10 +517,6 @@ elif page == "geo":
         st.plotly_chart(ranked_bar(rd, "R", "N", "By region", height=420),
                         use_container_width=True, config={"displayModeBar": False})
 
-    with st.expander("Country table"):
-        st.dataframe(by_country.sort_values("N", ascending=False).rename(columns={"MAP_COUNTRY": "Country", "N": "Projects"}),
-                     hide_index=True, use_container_width=True)
-
 # ===========================================================================
 # BY SECTOR
 # ===========================================================================
@@ -574,23 +546,10 @@ elif page == "sector":
     a.success(f"**Most data:** {top.iloc[0]['S']} ({int(top.iloc[0]['N'])} projects)")
     b.warning(f"**Least data:** {top.iloc[-1]['S']} ({int(top.iloc[-1]['N'])} projects)")
 
-    with st.expander("Sector × region grid"):
-        st.dataframe(pd.crosstab(mp["S"], mp["REGION"].str.title(), margins=True, margins_name="Total"),
-                     use_container_width=True)
-
 # ===========================================================================
 # SUSTAINABILITY (its own report - never feeds main-pipeline totals)
 # ===========================================================================
 elif page == "sustainability":
-    s_new_e = sus_e[sus_e["EVENT_TYPE"] == "NEW PROJECT"]
-    bulk = s_new_e.groupby("EFFECTIVE_DATE").size()
-    for day, n in bulk[bulk >= 50].items():
-        st.warning(
-            f"**{n} Sustainability projects were bulk-loaded on {day.date()}** — a one-time import of an "
-            f"existing backlog, not {n} projects genuinely started that day. Month-over-month "
-            f"\"new Sustainability project\" counts are distorted by this and shouldn't be read as organic activity."
-        )
-
     total = len(sus_p)
     in_cortex = int((sus_p["CURRENT_STAGE"] == "PUBLISHED TO CORTEX").sum())
     in_prog = int((sus_p["CURRENT_STAGE"] == "IN PROGRESS").sum())
@@ -626,39 +585,3 @@ elif page == "sustainability":
         _base_layout(fig, height=360, legend=False)
         fig.update_layout(title=dict(text="Sustainability projects by country", font_size=15, x=0))
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-
-    with st.expander("Sustainability — country × stage detail"):
-        st.dataframe(
-            pd.crosstab(sus_p["COUNTRY"], sus_p["CURRENT_STAGE"].str.title(), margins=True, margins_name="Total"),
-            use_container_width=True,
-        )
-
-# ===========================================================================
-# HOW IT WORKS
-# ===========================================================================
-elif page == "how":
-    steps = [
-        ("1 · Source", "Regional champions source & share project data to the US CBI team for prioritisation."),
-        ("2 · Clean", "GMC analysts clean and process the data in priority order (non-US); the CBI team does the same for US data."),
-        ("3 · Template & review", "The CBI team builds the import templates, answers questions, and a senior CBI analyst reviews all data."),
-        ("4 · Publish", "The CBI team publishes the reviewed projects into Cortex."),
-        ("5 · Available", "Data is live in Cortex for regional champions and Cortex users."),
-        ("6 · Report", "Dashboards (like this one) are built from Cortex data for the wider business."),
-    ]
-    cols = st.columns(len(steps))
-    for col, (head, body) in zip(cols, steps):
-        col.markdown(
-            f"<div style='background:#fff;border-left:4px solid {PLUM};border-radius:6px;padding:.8rem;height:100%;"
-            f"box-shadow:0 1px 4px rgba(91,31,148,.10);'>"
-            f"<div style='font-weight:700;color:{PLUM};margin-bottom:.4rem;'>{head}</div>"
-            f"<div style='font-size:.82rem;color:#5a4a6a;line-height:1.45;'>{body}</div></div>",
-            unsafe_allow_html=True,
-        )
-    st.markdown(" ")
-    st.markdown(
-        "**The stages a project moves through:** "
-        + " → ".join(MAIN_STAGE_SHORT[s] for s in MAIN_STAGES)
-        + ". Every move is logged with a date, which is what makes this report possible — "
-        "no more screenshotting a spreadsheet to see what changed."
-    )
-    st.caption("All figures are live from the tracker database.")
