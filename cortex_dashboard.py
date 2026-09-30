@@ -342,7 +342,7 @@ if page == "overview":
     with goal_col2:
         remaining = QUOTA_GOAL - countdown_count
         pct = countdown_count / QUOTA_GOAL if QUOTA_GOAL else 0
-        m1, m2, m3 = st.columns(3)
+        m1, m2, m3 = st.columns([2, 1, 1])
         m1.metric("In Cortex so far this year", countdown_count)
         m2.metric("Goal", QUOTA_GOAL)
         if remaining > 0:
@@ -629,7 +629,7 @@ elif page == "sustainability":
     total = len(sus_p)
     in_cortex = int((sus_p["CURRENT_STAGE"] == "PUBLISHED TO CORTEX").sum())
     in_prog = int((sus_p["CURRENT_STAGE"] == "IN PROGRESS").sum())
-    k = st.columns(4)
+    k = st.columns([2, 1, 1, 1])
     k[0].metric("Sustainability projects — total", f"{total:,}")
     k[1].metric("Published to Cortex", in_cortex)
     k[2].metric("In progress", f"{in_prog:,}")
