@@ -21,8 +21,12 @@ div[data-testid="stAppViewBlockContainer"] {{ padding-top: 1.2rem; }}
 /* ---- sidebar page-navigator ---- */
 section[data-testid="stSidebar"] {{
     background: linear-gradient(180deg, {PURPLE} 0%, {PURPLE_DARK} 100%);
-    min-width: 250px !important;
+    width: 230px !important;
+    min-width: 230px !important;
+    max-width: 230px !important;
 }}
+/* Locks the width above - hide the drag handle so it can't be resized. */
+div[data-testid="stSidebarResizeHandle"] {{ display: none !important; }}
 section[data-testid="stSidebar"] > div {{ padding-top: 1rem; }}
 section[data-testid="stSidebar"] .stButton > button {{
     background: transparent !important; border: none !important;

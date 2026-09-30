@@ -25,7 +25,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 import streamlit as st
 
 from db import get_connection, PROJECTS_TABLE, EVENTS_TABLE
@@ -94,6 +93,27 @@ COUNTRY_TO_MAP = {
     "WALES": "United Kingdom", "NORTHERN IRELAND": "United Kingdom",
     "UAE": "United Arab Emirates", "KSA": "Saudi Arabia",
     "HONG KONG": "Hong Kong", "COSTA RICA": "Costa Rica",
+}
+
+# Approximate centroids - positions every country bubble on the
+# Geography page's map (confirmed against every real COUNTRY value in
+# the live data, 2026-09-30) and labels the top few directly on the map.
+# Not a full geocoder: a country missing here simply drops off the map
+# rather than erroring, so it's fine to be generous/approximate.
+COUNTRY_CENTROIDS = {
+    "United States": (39.8, -98.6), "United Kingdom": (54.0, -2.0),
+    "United Arab Emirates": (23.4, 53.8), "Saudi Arabia": (23.9, 45.1),
+    "India": (22.0, 79.0), "Hong Kong": (22.3, 114.2),
+    "Costa Rica": (9.7, -83.8), "Brazil": (-10.3, -53.2),
+    "Canada": (56.1, -106.3), "Mexico": (23.6, -102.5),
+    "Australia": (-25.3, 133.8), "Singapore": (1.35, 103.8),
+    "Germany": (51.2, 10.4), "France": (46.2, 2.2), "Ireland": (53.4, -8.2),
+    "Spain": (40.5, -3.7), "Italy": (41.9, 12.6), "China": (35.9, 104.2),
+    "Japan": (36.2, 138.3), "South Africa": (-30.6, 22.9), "Egypt": (26.8, 30.8),
+    "Qatar": (25.4, 51.2), "Kuwait": (29.3, 47.5), "Netherlands": (52.1, 5.3),
+    "Poland": (51.9, 19.1), "Turkey": (38.9, 35.2), "Switzerland": (46.8, 8.2),
+    "Iraq": (33.0, 44.0), "Malaysia": (4.2, 101.9), "Peru": (-9.2, -75.0),
+    "Sweden": (60.1, 18.6), "Thailand": (15.9, 100.9), "Antarctica": (-82.0, 0.0),
 }
 
 
@@ -240,11 +260,20 @@ def region_bar(counts, title, height=320):
 
 
 def goal_gauge(height=250):
+    axis_max = max(QUOTA_GOAL, countdown_count) * 1.05
+    # Swap the numeric tick at the goal value for a small "GOAL" label,
+    # right on the ring at the threshold line - piggybacking on Plotly's
+    # own tick placement is exact, unlike hand-computing an annotation's
+    # x/y position on the arc.
+    tickvals = sorted(set(range(0, int(axis_max) + 50, 50)) | {QUOTA_GOAL})
+    ticktext = ["<b>GOAL</b>" if v == QUOTA_GOAL else str(v) for v in tickvals]
+
     fig = go.Figure(go.Indicator(
         mode="gauge+number", value=countdown_count,
         number={"font": {"color": PLUM, "family": "Merriweather"}},
         gauge={
-            "axis": {"range": [0, max(QUOTA_GOAL, countdown_count) * 1.05], "tickcolor": PURPLE_LIGHT},
+            "axis": {"range": [0, axis_max], "tickcolor": PURPLE_LIGHT,
+                    "tickvals": tickvals, "ticktext": ticktext, "tickfont": {"size": 11}},
             "bar": {"color": PLUM},
             "steps": [{"range": [0, QUOTA_GOAL], "color": PURPLE_PALE}],
             "threshold": {"line": {"color": "#b8862c", "width": 4}, "thickness": 0.85, "value": QUOTA_GOAL},
@@ -289,7 +318,7 @@ page = st.session_state.report_page
 
 page_header(
     PAGE_TITLE[page],
-    subtitle="Live from the tracker &middot; main pipeline (US &middot; Global &middot; UK)"
+    subtitle="Live from the tracker"
     if page != "sustainability" else "Live from the tracker &middot; Sustainability pipeline",
 )
 
@@ -303,10 +332,10 @@ if page == "overview":
     k = st.columns(3)
     k[0].metric("In Cortex — all time", f"{in_cortex_all:,}")
     k[1].metric("YTD new shared", ytd_new)
-    k[2].metric("Countries covered", main_p["COUNTRY"].nunique())
+    k[2].metric("Countries covered (current)", main_p["COUNTRY"].nunique())
 
     st.markdown("---")
-    st.markdown('<p class="cb-eyebrow">2026 Cortex Countdown &middot; US + Global + UK</p>', unsafe_allow_html=True)
+    st.markdown('<p class="cb-eyebrow">2026 Cortex Countdown</p>', unsafe_allow_html=True)
     goal_col1, goal_col2 = st.columns([1, 2])
     with goal_col1:
         st.plotly_chart(goal_gauge(), use_container_width=True, config={"displayModeBar": False})
@@ -320,10 +349,16 @@ if page == "overview":
             m3.metric("Still to go", remaining)
         else:
             m3.metric("Over goal by", -remaining)
-        st.caption(
-            f"{pct:.0%} of the 2026 goal reached, counting US, Global and UK projects "
-            "published to Cortex ('In Cortex Complete') in 2026."
-        )
+
+        ytd_published = published_e[published_e["YM"].str.startswith("2026")]
+        us_count = int((ytd_published["TRACKER"] == "US").sum())
+        global_count = int((ytd_published["TRACKER"] != "US").sum())
+        m4, m5 = st.columns(2)
+        m4.metric("US", us_count)
+        m5.metric("Global (non-US)", global_count)
+
+        emoji = "🎉" if remaining <= 0 else "🚀"
+        st.caption(f"{pct:.0%} of the 2026 goal reached {emoji}")
 
     st.markdown("---")
     total_main = len(main_p)
@@ -369,7 +404,7 @@ elif page == "monthly":
     published_this_month = int((published_e["YM"] == sel_month).sum())
     new_this_month = int((new_proj_e["YM"] == sel_month).sum())
 
-    st.markdown('<p class="cb-eyebrow">Overview</p>', unsafe_allow_html=True)
+    st.markdown(f'<p class="cb-eyebrow">Overview &middot; {month_label(sel_month)}</p>', unsafe_allow_html=True)
     mc = st.columns(3)
     mc[0].metric("New projects shared", new_this_month)
     mc[1].metric("Published to Cortex", published_this_month)
@@ -460,7 +495,7 @@ elif page == "ytd":
 # PIPELINE HEALTH
 # ===========================================================================
 elif page == "pipeline":
-    st.markdown('<p class="cb-eyebrow">Where projects sit &mdash; and where they get stuck</p>', unsafe_allow_html=True)
+    st.markdown('<p class="cb-eyebrow">Where projects sit in the pipeline &middot; current snapshot</p>', unsafe_allow_html=True)
 
     mp = main_p.copy()
     mp["S"] = mp["SECTOR"].map(sector_short)
@@ -483,7 +518,7 @@ elif page == "pipeline":
 # GEOGRAPHY
 # ===========================================================================
 elif page == "geo":
-    st.markdown('<p class="cb-eyebrow">Geographic coverage of the Cortex database (main pipeline)</p>', unsafe_allow_html=True)
+    st.markdown('<p class="cb-eyebrow">Geographic coverage of the Cortex database &middot; current snapshot</p>', unsafe_allow_html=True)
     stage_filter = st.selectbox(
         "Show projects that are…",
         ["In Cortex (complete)", "Anywhere in the pipeline"] + [MAIN_STAGE_SHORT[s] for s in MAIN_STAGES[:-1]],
@@ -500,7 +535,7 @@ elif page == "geo":
     by_country = gp[gp["MAP_COUNTRY"].notna()].groupby("MAP_COUNTRY").size().rename("N").reset_index()
 
     k = st.columns(3)
-    k[0].metric("Countries covered", by_country["MAP_COUNTRY"].nunique())
+    k[0].metric("Countries covered (current)", by_country["MAP_COUNTRY"].nunique())
     if not by_country.empty:
         top_row = by_country.sort_values("N", ascending=False).iloc[0]
         k[1].metric("Top country", top_row["MAP_COUNTRY"], f"{int(top_row['N']):,} projects")
@@ -509,40 +544,58 @@ elif page == "geo":
     k[2].metric("Regions represented", gp["REGION"].nunique())
 
     st.markdown("---")
-    st.markdown("##### World coverage")
-    fig = px.choropleth(
-        by_country, locations="MAP_COUNTRY", locationmode="country names", color="N",
-        color_continuous_scale=[[0, PURPLE_PALE], [1, PLUM]],
-        hover_name="MAP_COUNTRY",
-    )
+    # Bubble map, not a choropleth fill - with data this concentrated
+    # (a handful of countries carry almost everything), a color-fill map
+    # reads as "mostly one pale color"; bubble SIZE communicates the same
+    # magnitude much faster than a subtle shade difference does.
+    bc = by_country.copy()
+    bc["lat"] = bc["MAP_COUNTRY"].map(lambda c: COUNTRY_CENTROIDS.get(c, (None, None))[0])
+    bc["lon"] = bc["MAP_COUNTRY"].map(lambda c: COUNTRY_CENTROIDS.get(c, (None, None))[1])
+    bc = bc.dropna(subset=["lat", "lon"])
+    # Area-proportional sizing (sqrt of the value), not diameter-proportional -
+    # a straight linear size scale would make the biggest country look
+    # wildly, misleadingly larger than it actually is relative to the rest.
+    bc["size"] = 14 + 46 * (bc["N"] ** 0.5) / (bc["N"].max() ** 0.5 if bc["N"].max() else 1)
+
+    fig = go.Figure(go.Scattergeo(
+        lat=bc["lat"], lon=bc["lon"], text=bc["MAP_COUNTRY"],
+        customdata=bc["N"],
+        marker=dict(size=bc["size"], color=PLUM, opacity=0.75,
+                    line=dict(width=1, color="#ffffff")),
+        hovertemplate="<b>%{text}</b>: %{customdata} projects<extra></extra>",
+    ))
     fig.update_geos(
         showframe=False, showcoastlines=True, coastlinecolor="#c9bdd6",
         showcountries=True, countrycolor="#d4cdd9",
         showland=True, landcolor="#f2eef6", showocean=True, oceancolor=CREAM,
-        projection_type="natural earth", bgcolor="rgba(0,0,0,0)",
+        projection_type="equirectangular", bgcolor="rgba(0,0,0,0)",
+        # Fixed range (not fitbounds) - covers every region we operate in
+        # (Americas through APAC, skipping the poles) and stays put
+        # regardless of which stage filter is picked above, so the map
+        # doesn't re-zoom/jump every time the selection changes.
+        lonaxis=dict(range=[-130, 155]), lataxis=dict(range=[-45, 70]),
     )
-    fig.update_layout(title=dict(text=""))
-    _base_layout(fig, height=560, legend=False)
-    fig.update_layout(coloraxis_colorbar=dict(title="Projects"), margin=dict(l=0, r=0, t=10, b=0))
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
-    st.markdown("---")
-    gc1, gc2 = st.columns(2)
-    with gc1:
-        top_countries = by_country.sort_values("N", ascending=False).head(12)
-        st.plotly_chart(ranked_bar(top_countries, "MAP_COUNTRY", "N", "Top countries", height=440),
-                        use_container_width=True, config={"displayModeBar": False})
-    with gc2:
-        rd = gp.groupby("REGION").size().rename("N").reset_index()
-        rd["R"] = rd["REGION"].str.title()
-        st.plotly_chart(ranked_bar(rd, "R", "N", "By region", height=440),
-                        use_container_width=True, config={"displayModeBar": False})
+    top_for_labels = bc.sort_values("N", ascending=False).head(6)
+    if not top_for_labels.empty:
+        fig.add_trace(go.Scattergeo(
+            lat=top_for_labels["lat"], lon=top_for_labels["lon"],
+            text=[f"{r['MAP_COUNTRY']} · {int(r['N'])}" for _, r in top_for_labels.iterrows()],
+            mode="text", textposition="top center",
+            textfont=dict(size=13, color=PLUM, family="Lato, sans-serif"),
+            showlegend=False, hoverinfo="skip",
+        ))
+
+    fig.update_layout(title=dict(text=""))
+    _base_layout(fig, height=700, legend=False)
+    fig.update_layout(margin=dict(l=0, r=0, t=10, b=0))
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 # ===========================================================================
 # BY SECTOR
 # ===========================================================================
 elif page == "sector":
-    st.markdown('<p class="cb-eyebrow">Sectors &mdash; most and least represented in Cortex</p>', unsafe_allow_html=True)
+    st.markdown('<p class="cb-eyebrow">Sectors &mdash; most and least represented in Cortex &middot; all time</p>', unsafe_allow_html=True)
     mp = main_p.copy()
     mp["S"] = mp["SECTOR"].map(sector_short)
 
@@ -572,6 +625,7 @@ elif page == "sector":
 # SUSTAINABILITY (its own report - never feeds main-pipeline totals)
 # ===========================================================================
 elif page == "sustainability":
+    st.markdown('<p class="cb-eyebrow">All time</p>', unsafe_allow_html=True)
     total = len(sus_p)
     in_cortex = int((sus_p["CURRENT_STAGE"] == "PUBLISHED TO CORTEX").sum())
     in_prog = int((sus_p["CURRENT_STAGE"] == "IN PROGRESS").sum())
