@@ -90,6 +90,13 @@ div[data-testid="stMetric"] {{
     background-color:white; padding:0.8rem; border-radius:6px; border-left:4px solid {PURPLE_LIGHT};
     box-shadow:0 1px 4px rgba(91,31,148,0.10);
 }}
+/* Long metric labels ("In Cortex so far this year", "Sustainability
+   projects — total") were getting cut off with an ellipsis instead of
+   wrapping - let them wrap onto a second line instead. */
+div[data-testid="stMetricLabel"] {{
+    white-space: normal !important; overflow: visible !important; text-overflow: clip !important;
+}}
+div[data-testid="stMetricLabel"] p {{ white-space: normal !important; overflow: visible !important; }}
 
 hr {{ border-color:#ddd5e5 !important; }}
 footer {{visibility: hidden;}}
