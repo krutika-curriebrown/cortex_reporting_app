@@ -453,12 +453,23 @@ elif page == "monthly":
 elif page == "ytd":
     st.markdown('<p class="cb-eyebrow">Year to date &middot; 2026</p>', unsafe_allow_html=True)
 
-    ytd_published = countdown_count
-    ytd_new = int((new_proj_e["YM"].str.startswith("2026")).sum())
+    # "Global" here means non-US (Global + UK combined), matching the
+    # Overview page's "Global (non-US)" metric - not an exact match on the
+    # GLOBAL tracker alone.
+    tracker_filter = st.selectbox("Tracker", ["US", "Global"], index=0)
+    if tracker_filter == "US":
+        pub_f = published_e[published_e["TRACKER"] == "US"]
+        new_f = new_proj_e[new_proj_e["TRACKER"] == "US"]
+    else:
+        pub_f = published_e[published_e["TRACKER"] != "US"]
+        new_f = new_proj_e[new_proj_e["TRACKER"] != "US"]
+
+    ytd_published = int((pub_f["YM"].str.startswith("2026")).sum())
+    ytd_new = int((new_f["YM"].str.startswith("2026")).sum())
 
     by_month = pd.DataFrame({"YM": [f"2026-{m:02d}" for m in range(1, 13)]})
-    pub_m = published_e[published_e["YM"].str.startswith("2026")].groupby("YM").size().rename("Published")
-    new_m = new_proj_e[new_proj_e["YM"].str.startswith("2026")].groupby("YM").size().rename("New shared")
+    pub_m = pub_f[pub_f["YM"].str.startswith("2026")].groupby("YM").size().rename("Published")
+    new_m = new_f[new_f["YM"].str.startswith("2026")].groupby("YM").size().rename("New shared")
     by_month = by_month.merge(pub_m, on="YM", how="left").merge(new_m, on="YM", how="left").fillna(0)
     by_month = by_month[by_month["YM"] <= available_months[-1]]
     by_month["Month"] = by_month["YM"].map(month_label)
@@ -474,22 +485,22 @@ elif page == "ytd":
                         textposition="top center",
                         hovertemplate="%{x}: <b>%{y}</b> published<extra></extra>")
         _base_layout(fig, height=380)
-        st.markdown("##### Monthly flow: shared vs published")
+        st.markdown(f"##### Monthly flow: shared vs published ({tracker_filter})")
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
     with c2:
-        ytd_new_p = new_proj_e[new_proj_e["YM"].str.startswith("2026")].copy()
+        ytd_new_p = new_f[new_f["YM"].str.startswith("2026")].copy()
         ytd_new_p["S"] = ytd_new_p["SECTOR"].map(sector_short)
         sd = ytd_new_p.groupby("S").size().rename("N").reset_index()
-        st.plotly_chart(ranked_bar(sd, "S", "N", "YTD new projects shared, by sector", height=380),
+        st.plotly_chart(ranked_bar(sd, "S", "N", f"YTD new projects shared, by sector ({tracker_filter})", height=380),
                         use_container_width=True, config={"displayModeBar": False})
 
     g = st.columns(4)
     ratio = round(ytd_new / ytd_published, 2) if ytd_published else 0
-    g[0].metric("YTD new shared", ytd_new)
-    g[1].metric("YTD published", ytd_published)
+    g[0].metric(f"YTD new shared ({tracker_filter})", ytd_new)
+    g[1].metric(f"YTD published ({tracker_filter})", ytd_published)
     g[2].metric("New : published ratio", ratio)
-    g[3].metric("Quota remaining", max(QUOTA_GOAL - countdown_count, 0))
+    g[3].metric("Quota remaining (combined, 150)", max(QUOTA_GOAL - countdown_count, 0))
 
 # ===========================================================================
 # PIPELINE HEALTH
